@@ -123,3 +123,89 @@ def evaluate_rules(weather: Dict[str, Any], context: Dict[str, Any] | None = Non
         )
 
     return alerts
+
+def evaluate_forecast_rules(
+    forecast: Dict[str, Any],
+    context: Dict[str, Any] | None = None,
+) -> List[Alert]:
+    """
+    Evaluate rules based on an hourly forecast time series.
+
+    `forecast` is expected to have:
+    - 'time': list[str]
+    - 'temperature': list[float]
+    - 'precipitation': list[float]
+    - 'uv_index': list[float or None]
+
+    Context can include the same flags as in `evaluate_rules`.
+    """
+    if context is None:
+        context = {}
+
+    has_pets = context.get("has_pets", False)
+    has_plants = context.get("has_plants", False)
+    sensitive_to_heat = context.get("sensitive_to_heat", False)
+
+    times = forecast.get("time", [])
+    temps = forecast.get("temperature", [])
+    precs = forecast.get("precipitation", [])
+    uvs = forecast.get("uv_index", [])
+
+    alerts: List[Alert] = []
+
+    # --- Example forecast-based rules ---
+
+    # 1) Heavy rain in the next hours
+    heavy_rain_threshold = 2.0  # mm
+    for t, p in zip(times, precs):
+        if p is not None and p > heavy_rain_threshold:
+            alerts.append(
+                Alert(
+                    message="Heavy rain expected soon. Check balcony, windows and outdoor items.",
+                    reason=f"Forecast precipitation > {heavy_rain_threshold} mm at {t} (forecast: {p} mm)",
+                    severity="warning",
+                )
+            )
+            break  # one alert is enough
+
+    # 2) Freezing temperatures coming, important for plants
+    if has_plants:
+        for t, temp in zip(times, temps):
+            if temp is not None and temp < 0:
+                alerts.append(
+                    Alert(
+                        message="Freezing temperatures expected and you have plants. Protect sensitive plants.",
+                        reason=f"Forecast temperature below 0°C at {t} (forecast: {temp}°C)",
+                        severity="warning",
+                    )
+                )
+                break
+
+    # 3) High UV index later today
+    high_uv_threshold = 6.0
+    for t, uv in zip(times, uvs):
+        if uv is not None and uv >= high_uv_threshold:
+            alerts.append(
+                Alert(
+                    message="High UV index expected. Consider closing blinds and using sun protection.",
+                    reason=f"Forecast UV index ≥ {high_uv_threshold} at {t} (forecast: {uv})",
+                    severity="info" if not sensitive_to_heat else "warning",
+                )
+            )
+            break
+
+    # 4) Very hot period coming, relevant for pets and heat sensitivity
+    if has_pets or sensitive_to_heat:
+        hot_threshold = 30.0
+        for t, temp in zip(times, temps):
+            if temp is not None and temp > hot_threshold:
+                alerts.append(
+                    Alert(
+                        message="Very hot weather expected. Ensure pets have shade and enough water; consider cooling the home.",
+                        reason=f"Forecast temperature above {hot_threshold}°C at {t} (forecast: {temp}°C)",
+                        severity="warning",
+                    )
+                )
+                break
+
+    return alerts
