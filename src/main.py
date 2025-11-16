@@ -5,6 +5,7 @@ from weather_client import (
     get_hourly_forecast_by_city,
 )
 from rules_engine import evaluate_rules, evaluate_forecast_rules
+from alerts import send_alerts_email_if_configured
 
 
 def main():
@@ -64,7 +65,7 @@ def main():
         # ---- Forecast-based alerts ----
         forecast_alerts = evaluate_forecast_rules(forecast, context=context)
 
-    # ---- Print combined alerts ----
+        # ---- Print combined alerts ----
     if not alerts and not forecast_alerts:
         print("No alerts triggered (current or forecast).")
     else:
@@ -84,7 +85,13 @@ def main():
                 print(f"- [{alert.severity.upper()}] {alert.message}")
                 print(f"    Reason: {alert.reason}")
 
-
+    # ---- Email notification (simulated or real depending on config) ----
+    send_alerts_email_if_configured(
+        city=city,
+        weather=weather,
+        current_alerts=alerts,
+        forecast_alerts=forecast_alerts,
+    )
 if __name__ == "__main__":
     main()
 
