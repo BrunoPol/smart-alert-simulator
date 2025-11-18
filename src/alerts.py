@@ -1,7 +1,8 @@
 """Email and notification helpers for the Smart Alert Simulator."""
 
 import os
-from typing import Iterable
+from typing import Iterable, Optional
+
 
 from email.message import EmailMessage
 import smtplib
@@ -62,10 +63,11 @@ def _build_alerts_email_body(
     return "\n".join(lines)
 
 
-def _send_email(subject: str, body: str) -> None:
+def _send_email(subject: str, body: str, email_to_override: Optional[str] = None) -> None:
     """
     Low-level email sender using SMTP.
     Respects EMAIL_ENABLED flag in environment.
+    Allows overriding the recipient email address.
     """
 
     enabled = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
@@ -75,7 +77,8 @@ def _send_email(subject: str, body: str) -> None:
     username = os.getenv("EMAIL_USERNAME")
     password = os.getenv("EMAIL_PASSWORD")
     email_from = os.getenv("EMAIL_FROM", username or "")
-    email_to = os.getenv("EMAIL_TO")
+    email_to_env = os.getenv("EMAIL_TO")
+    email_to = email_to_override or email_to_env
 
     if not enabled:
         # Simulation mode: just print to console
@@ -86,7 +89,7 @@ def _send_email(subject: str, body: str) -> None:
         print("---- End of simulated email ----")
         return
 
-    # For real sending, we need all configuration values
+    # Basic validation for real sending
     if not (smtp_server and username and password and email_from and email_to):
         print("Email configuration is incomplete. Cannot send email.")
         return
@@ -112,11 +115,13 @@ def send_alerts_email_if_configured(
     weather: dict,
     current_alerts: Iterable[Alert],
     forecast_alerts: Iterable[Alert],
+    email_to: Optional[str] = None,
 ) -> None:
     """
     High-level helper:
     - If there are no alerts at all, do nothing.
     - Otherwise, build an email and send it (or simulate it).
+    - If email_to is provided, it overrides EMAIL_TO from environment.
     """
 
     current_alerts = list(current_alerts)
@@ -129,4 +134,5 @@ def send_alerts_email_if_configured(
     subject = f"Smart Alert Simulator - Alerts for {city}"
     body = _build_alerts_email_body(city, weather, current_alerts, forecast_alerts)
 
-    _send_email(subject, body)
+    _send_email(subject, body, email_to_override=email_to)
+

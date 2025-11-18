@@ -1,0 +1,11 @@
+[
+  {
+    "email": "nietzoldn@yahoo.de",
+    "city": "Oslo",
+    "has_pets": true,
+    "has_plants": true,
+    "sensitive_to_cold": false,
+    "sensitive_to_heat": true
+  }
+]
+
