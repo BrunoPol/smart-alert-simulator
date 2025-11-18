@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from src.rules_engine import Alert
 
 
+
 # Load environment variables from .env
 load_dotenv()
 
