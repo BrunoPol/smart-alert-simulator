@@ -27,16 +27,19 @@ from typing import Any, Dict, List
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-# Load environment variables from .env (on PythonAnywhere and locally)
-load_dotenv()
+# Determine base directory (project root where this file lives)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Explicitly load .env from the project root
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 app = Flask(__name__)
 
-BASE_DIR = os.path.dirname(__file__)
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "user_profiles.json")
 
 PROFILE_API_SECRET = os.getenv("PROFILE_API_SECRET")
+
 
 
 def load_profiles() -> List[Dict[str, Any]]:
