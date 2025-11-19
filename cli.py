@@ -4,10 +4,22 @@ Simple command-line interface (CLI) for the Smart Alert Simulator.
 Run it from the project root with:
 
     python cli.py
+
+Features:
+- Run the simulator once interactively (choose city, context, email).
+- Register/update a daily email profile (saved to config/user_profiles.json),
+  which is used by send_all_alerts.py for scheduled notifications.
 """
 
+import json
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+import requests
+from dotenv import load_dotenv  # NEW
+load_dotenv()  # to get PROFILE_API_* from .env
+
+PROFILE_API_URL = os.getenv("PROFILE_API_URL")
+PROFILE_API_SECRET = os.getenv("PROFILE_API_SECRET")
 
 from src.weather_client import (
     get_current_weather_by_city,
@@ -16,17 +28,8 @@ from src.weather_client import (
 from src.rules_engine import evaluate_rules, evaluate_forecast_rules
 from src.alerts import send_alerts_email_if_configured
 
-
-def clear_screen() -> None:
-    """Clear the terminal screen (works on Windows, macOS, Linux)."""
-    os.system("cls" if os.name == "nt" else "clear")
-
-
-def print_header(title: str) -> None:
-    """Print a nice section header."""
-    print("=" * 50)
-    print(title)
-    print("=" * 50)
+CONFIG_DIR = "config"
+CONFIG_PATH = os.path.join(CONFIG_DIR, "user_profiles.json")
 
 
 def ask_yes_no(prompt: str) -> bool:
@@ -42,7 +45,7 @@ def ask_yes_no(prompt: str) -> bool:
 
 def choose_city() -> str:
     """Let the user choose a city from a small menu or enter a custom one."""
-    print_header("Choose a city")
+    print("Choose a city:")
     print("  1) Lisbon")
     print("  2) Oslo")
     print("  3) Dubai")
@@ -70,7 +73,7 @@ def choose_city() -> str:
 
 def build_context_from_user() -> Dict[str, Any]:
     """Ask the user a few questions to build the context dict."""
-    print_header("Household context")
+    print("\nNow tell me a bit about your household:")
 
     has_pets = ask_yes_no("Do you have pets?")
     has_plants = ask_yes_no("Do you have plants (especially outdoors)?")
@@ -88,11 +91,15 @@ def build_context_from_user() -> Dict[str, Any]:
     for key, value in context.items():
         print(f"  {key}: {value}")
 
-    input("\nPress Enter to continue...")
     return context
 
 
-def run_alert_flow(city: str, context: Dict[str, Any], hours: int = 6) -> None:
+def run_alert_flow(
+    city: str,
+    context: Dict[str, Any],
+    notification_email: Optional[str],
+    hours: int = 6,
+) -> None:
     """
     Run the full alert flow:
     - fetch current weather
@@ -101,10 +108,10 @@ def run_alert_flow(city: str, context: Dict[str, Any], hours: int = 6) -> None:
     - print alerts
     - trigger email notification (simulated or real)
     """
-    clear_screen()
-    print_header("Smart Alert Simulator – Run")
+    print("\n==== Running Smart Alert Simulator ====\n")
     print(f"City: {city}")
     print(f"Context: {context}")
+    print(f"Notification email override: {notification_email}")
     print()
 
     # ---- Fetch current weather ----
@@ -113,8 +120,7 @@ def run_alert_flow(city: str, context: Dict[str, Any], hours: int = 6) -> None:
         print(f"Could not find weather data for city: {city}")
         return
 
-    print("Current weather:")
-    print(f"  Time:        {weather['time']}")
+    print(f"Current weather in {city} at {weather['time']}:")
     print(f"  Temperature: {weather['temperature']} °C")
     print(f"  Humidity:    {weather['humidity']} %")
     print(f"  Precip:      {weather['precipitation']} mm")
@@ -143,11 +149,10 @@ def run_alert_flow(city: str, context: Dict[str, Any], hours: int = 6) -> None:
         forecast_alerts = evaluate_forecast_rules(forecast, context=context)
 
     # ---- Print combined alerts ----
-    print_header("Alerts")
     if not current_alerts and not forecast_alerts:
         print("No alerts triggered (current or forecast).")
     else:
-        print("Current conditions:")
+        print("Alerts (current conditions):")
         if not current_alerts:
             print("  None.")
         else:
@@ -155,7 +160,7 @@ def run_alert_flow(city: str, context: Dict[str, Any], hours: int = 6) -> None:
                 print(f"- [{alert.severity.upper()}] {alert.message}")
                 print(f"    Reason: {alert.reason}")
 
-        print("\nForecast-based:")
+        print("\nAlerts (forecast-based):")
         if not forecast_alerts:
             print("  None.")
         else:
@@ -164,40 +169,146 @@ def run_alert_flow(city: str, context: Dict[str, Any], hours: int = 6) -> None:
                 print(f"    Reason: {alert.reason}")
 
     # ---- Email notification ----
-    print_header("Email notification")
+    print("\nEmail notification:")
     send_alerts_email_if_configured(
         city=city,
         weather=weather,
         current_alerts=current_alerts,
         forecast_alerts=forecast_alerts,
+        email_to=notification_email,
     )
 
     print("\n==== End of run ====\n")
-    input("Press Enter to return to the main menu...")
+
+
+# ---------- Profile storage helpers ----------
+
+
+def load_profiles() -> List[Dict[str, Any]]:
+    """Load all user profiles from the JSON file."""
+    if not os.path.exists(CONFIG_PATH):
+        return []
+
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as exc:
+        print(f"Warning: could not parse {CONFIG_PATH}: {exc}")
+        return []
+
+    if not isinstance(data, list):
+        print(f"Warning: expected a list of profiles in {CONFIG_PATH}.")
+        return []
+
+    return data
+
+
+def save_profiles(profiles: List[Dict[str, Any]]) -> None:
+    """Save all user profiles to the JSON file."""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(profiles, f, indent=2)
+    print(f"Profiles saved to {CONFIG_PATH}.")
+
+
+def register_profile() -> None:
+    """
+    Interactively create or update a user profile for daily emails.
+    The profile is stored in config/user_profiles.json.
+    """
+    print("\n=== Register / Update Daily Email Profile ===")
+
+    city = choose_city()
+    context = build_context_from_user()
+    print()
+
+    while True:
+        email = input("Enter the email address to receive daily alerts: ").strip()
+        if email:
+            break
+        print("Email cannot be empty.")
+
+    profile = {
+        "email": email,
+        "city": city,
+        "has_pets": context["has_pets"],
+        "has_plants": context["has_plants"],
+        "sensitive_to_cold": context["sensitive_to_cold"],
+        "sensitive_to_heat": context["sensitive_to_heat"],
+    }
+
+    profiles = load_profiles()
+
+    # Update if email already exists, otherwise append.
+    for i, existing in enumerate(profiles):
+        if existing.get("email") == email:
+            profiles[i] = profile
+            print(f"\nUpdated existing profile for {email}.")
+            break
+    else:
+        profiles.append(profile)
+        print(f"\nAdded new profile for {email}.")
+
+    save_profiles(profiles)
+
+    sync_profile_to_server(profile)
+
+    # Optional: ask if they want to run a test immediately
+    if ask_yes_no("Do you want to run the simulator now with this profile?"):
+        run_alert_flow(city, context, notification_email=email, hours=6)
+
+def sync_profile_to_server(profile: Dict[str, Any]) -> None:
+    """Send the profile to the server's /register_profile API (best-effort)."""
+    if not PROFILE_API_URL or not PROFILE_API_SECRET:
+        print("PROFILE_API_URL or PROFILE_API_SECRET not set; skipping server sync.")
+        return
+
+    payload = dict(profile)
+    payload["api_key"] = PROFILE_API_SECRET
+
+    try:
+        resp = requests.post(PROFILE_API_URL, json=payload, timeout=10)
+        if resp.status_code == 200:
+            print("Profile synced to server successfully.")
+        else:
+            print(
+                f"Server sync failed: {resp.status_code} {resp.text}"
+            )
+    except Exception as exc:
+        print(f"Could not sync profile to server: {exc}")
+
 
 
 def main() -> None:
     """Top-level CLI menu loop."""
-    while True:
-        clear_screen()
-        print_header("Smart Alert Simulator – CLI")
-        print("1) Run simulator")
-        print("2) Exit")
+    print("Welcome to the Smart Alert Simulator CLI!")
+    print("----------------------------------------")
 
-        choice = input("Your choice [1-2]: ").strip()
+    while True:
+        print("\nMain menu:")
+        print("  1) Run simulator once (interactive)")
+        print("  2) Register / update daily email profile")
+        print("  3) Exit")
+
+        choice = input("Your choice [1-3]: ").strip()
         if choice == "1":
             city = choose_city()
             context = build_context_from_user()
-            run_alert_flow(city, context, hours=6)
+            notification_email = input(
+                "\nEnter email address for this run "
+                "(leave empty to use default from .env): "
+            ).strip() or None
+            run_alert_flow(city, context, notification_email=notification_email, hours=6)
         elif choice == "2":
-            clear_screen()
+            register_profile()
+        elif choice == "3":
             print("Goodbye!")
             break
         else:
-            print("Please choose 1 or 2.")
-            input("Press Enter to continue...")
+            print("Please choose 1, 2, or 3.")
 
 
 if __name__ == "__main__":
     main()
+
 
