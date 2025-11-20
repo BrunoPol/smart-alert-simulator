@@ -20,27 +20,30 @@ def evaluate_rules(weather: Dict[str, Any], context: Dict[str, Any] | None = Non
     - has_plants: bool
     - sensitive_to_cold: bool
     - sensitive_to_heat: bool
-
-    If context is None, default values are used.
+    - sensitive_to_pollution: bool
+    - sensitive_to_allergies: bool
     """
     if context is None:
         context = {}
 
-    # Default context values
     has_pets = context.get("has_pets", False)
     has_plants = context.get("has_plants", False)
     sensitive_to_cold = context.get("sensitive_to_cold", False)
     sensitive_to_heat = context.get("sensitive_to_heat", False)
+    sensitive_to_pollution = context.get("sensitive_to_pollution", False)
+    sensitive_to_allergies = context.get("sensitive_to_allergies", False)
 
     alerts: List[Alert] = []
 
     temperature = weather.get("temperature")
+    apparent = weather.get("apparent_temperature")
     humidity = weather.get("humidity")
     precipitation = weather.get("precipitation")
+    uv_index = weather.get("uv_index")
 
     # ---- Basic weather rules (general) ----
 
-    # Cold weather
+    # Cold weather (actual)
     if temperature is not None and temperature < 5:
         alerts.append(
             Alert(
@@ -50,12 +53,32 @@ def evaluate_rules(weather: Dict[str, Any], context: Dict[str, Any] | None = Non
             )
         )
 
-    # Very hot weather
+    # Very hot weather (actual)
     if temperature is not None and temperature > 30:
         alerts.append(
             Alert(
                 message="It is very hot outside. Make sure pets and plants have enough water.",
                 reason=f"Temperature above 30°C (currently {temperature}°C)",
+                severity="warning",
+            )
+        )
+
+    # "Feels like" very hot
+    if apparent is not None and apparent > 35:
+        alerts.append(
+            Alert(
+                message="It will feel extremely hot today. Stay hydrated and avoid intense activities for pets and people.",
+                reason=f"Apparent temperature above 35°C (currently {apparent}°C)",
+                severity="warning",
+            )
+        )
+
+    # "Feels like" very cold
+    if apparent is not None and apparent < 0:
+        alerts.append(
+            Alert(
+                message="It will feel very cold today. Dress warmly and protect your pets during walks.",
+                reason=f"Apparent temperature below 0°C (currently {apparent}°C)",
                 severity="warning",
             )
         )
@@ -70,12 +93,32 @@ def evaluate_rules(weather: Dict[str, Any], context: Dict[str, Any] | None = Non
             )
         )
 
-    # Heavy rain
+    # Very humid -> mold risk
+    if humidity is not None and humidity > 80:
+        alerts.append(
+            Alert(
+                message="High humidity today – increased mold risk. Ventilate your home briefly.",
+                reason=f"Humidity above 80% (currently {humidity}%)",
+                severity="info",
+            )
+        )
+
+    # Heavy rain (current)
     if precipitation is not None and precipitation > 2:
         alerts.append(
             Alert(
-                message="Heavy rain expected. Check balcony, windows and outdoor items.",
+                message="Heavy rain at the moment. Check balcony, windows and outdoor items.",
                 reason=f"Precipitation above 2 mm (currently {precipitation} mm)",
+                severity="warning",
+            )
+        )
+
+    # High UV now
+    if uv_index is not None and uv_index >= 7:
+        alerts.append(
+            Alert(
+                message="UV index is very high. Use sun protection and avoid long exposure at midday.",
+                reason=f"Current UV index ≥ 7 (currently {uv_index})",
                 severity="warning",
             )
         )
@@ -122,7 +165,10 @@ def evaluate_rules(weather: Dict[str, Any], context: Dict[str, Any] | None = Non
             )
         )
 
+    # (sensitive_to_pollution and sensitive_to_allergies will be used
+    # more strongly in air-quality-specific rules below)
     return alerts
+
 
 def evaluate_forecast_rules(
     forecast: Dict[str, Any],
@@ -136,8 +182,8 @@ def evaluate_forecast_rules(
     - 'temperature': list[float]
     - 'precipitation': list[float]
     - 'uv_index': list[float or None]
-
-    Context can include the same flags as in `evaluate_rules`.
+    - 'apparent_temperature', 'precipitation_probability',
+      'wind_speed', 'visibility' (if available)
     """
     if context is None:
         context = {}
@@ -150,10 +196,12 @@ def evaluate_forecast_rules(
     temps = forecast.get("temperature", [])
     precs = forecast.get("precipitation", [])
     uvs = forecast.get("uv_index", [])
+    app_temps = forecast.get("apparent_temperature", [])
+    precip_probs = forecast.get("precipitation_probability", [])
+    winds = forecast.get("wind_speed", [])
+    vis = forecast.get("visibility", [])
 
     alerts: List[Alert] = []
-
-    # --- Example forecast-based rules ---
 
     # 1) Heavy rain in the next hours
     heavy_rain_threshold = 2.0  # mm
@@ -166,7 +214,7 @@ def evaluate_forecast_rules(
                     severity="warning",
                 )
             )
-            break  # one alert is enough
+            break
 
     # 2) Freezing temperatures coming, important for plants
     if has_plants:
@@ -208,4 +256,147 @@ def evaluate_forecast_rules(
                 )
                 break
 
+    # 5) Strong wind expected
+    strong_wind_threshold = 60.0  # km/h
+    for t, w in zip(times, winds):
+        if w is not None and w > strong_wind_threshold:
+            alerts.append(
+                Alert(
+                    message="Strong winds expected. Secure outdoor items and avoid leaving pets alone outside.",
+                    reason=f"Forecast wind speed above {strong_wind_threshold} km/h at {t} (forecast: {w} km/h)",
+                    severity="warning",
+                )
+            )
+            break
+
+    # 6) High probability of rain
+    high_rain_prob_threshold = 70  # %
+    for t, prob in zip(times, precip_probs):
+        if prob is not None and prob >= high_rain_prob_threshold:
+            alerts.append(
+                Alert(
+                    message="High chance of rain later. Keep an umbrella handy and plan walks accordingly.",
+                    reason=f"Precipitation probability ≥ {high_rain_prob_threshold}% at {t} (forecast: {prob}%)",
+                    severity="info",
+                )
+            )
+            break
+
+    # 7) Low visibility
+    low_visibility_threshold = 2.0  # km
+    for t, v in zip(times, vis):
+        if v is not None and v < low_visibility_threshold:
+            alerts.append(
+                Alert(
+                    message="Low visibility expected. Be cautious if driving or biking.",
+                    reason=f"Forecast visibility below {low_visibility_threshold} km at {t} (forecast: {v} km)",
+                    severity="warning",
+                )
+            )
+            break
+
     return alerts
+
+
+def evaluate_air_quality_rules(
+    air_quality: Dict[str, Any],
+    context: Dict[str, Any] | None = None,
+) -> List[Alert]:
+    """
+    Evaluate rules based on hourly air quality & pollen data.
+
+    `air_quality` is expected to have:
+    - 'time': list[str]
+    - 'pm2_5': list[float or None]
+    - 'pm10': list[float or None]
+    - 'grass_pollen', 'birch_pollen', 'ragweed_pollen': list[float or None]
+    """
+    if context is None:
+        context = {}
+
+    sensitive_to_pollution = context.get("sensitive_to_pollution", False)
+    sensitive_to_allergies = context.get("sensitive_to_allergies", False)
+    has_pets = context.get("has_pets", False)
+
+    times = air_quality.get("time", [])
+    pm25 = air_quality.get("pm2_5", [])
+    pm10 = air_quality.get("pm10", [])
+    grass = air_quality.get("grass_pollen", [])
+    birch = air_quality.get("birch_pollen", [])
+    ragweed = air_quality.get("ragweed_pollen", [])
+
+    alerts: List[Alert] = []
+
+    # --- Air pollution alerts (PM2.5 / PM10) ---
+
+    # Find max values over the period
+    max_pm25 = None
+    max_pm25_time = None
+    for t, v in zip(times, pm25):
+        if v is not None and (max_pm25 is None or v > max_pm25):
+            max_pm25 = v
+            max_pm25_time = t
+
+    max_pm10 = None
+    max_pm10_time = None
+    for t, v in zip(times, pm10):
+        if v is not None and (max_pm10 is None or v > max_pm10):
+            max_pm10 = v
+            max_pm10_time = t
+
+    # Simple thresholds (you can tweak these)
+    pm25_threshold = 35.0  # µg/m³-ish
+    pm10_threshold = 50.0
+
+    if max_pm25 is not None and max_pm25 > pm25_threshold and (sensitive_to_pollution or has_pets):
+        alerts.append(
+            Alert(
+                severity="warning",
+                message="Air pollution (PM2.5) is high. Sensitive people and pets should limit outdoor time.",
+                reason=f"Max PM2.5 value {max_pm25} at {max_pm25_time} exceeds {pm25_threshold}.",
+            )
+        )
+
+    if max_pm10 is not None and max_pm10 > pm10_threshold and (sensitive_to_pollution or has_pets):
+        alerts.append(
+            Alert(
+                severity="info",
+                message="Air pollution (PM10) is elevated. Consider shorter walks and airing rooms briefly.",
+                reason=f"Max PM10 value {max_pm10} at {max_pm10_time} exceeds {pm10_threshold}.",
+            )
+        )
+
+    # --- Pollen alerts (for allergies) ---
+
+    if sensitive_to_allergies:
+        # We take the highest pollen among the three types
+        best_level = None
+        best_type = None
+        best_time = None
+
+        for t, val in zip(times, grass):
+            if val is not None and (best_level is None or val > best_level):
+                best_level, best_type, best_time = val, "grass", t
+
+        for t, val in zip(times, birch):
+            if val is not None and (best_level is None or val > best_level):
+                best_level, best_type, best_time = val, "birch", t
+
+        for t, val in zip(times, ragweed):
+            if val is not None and (best_level is None or val > best_level):
+                best_level, best_type, best_time = val, "ragweed", t
+
+        # Simple "high" threshold; Open-Meteo often uses a 0–4 scale
+        pollen_threshold = 2.0
+        if best_level is not None and best_level >= pollen_threshold:
+            alerts.append(
+                Alert(
+                    severity="warning",
+                    message=f"High {best_type} pollen today. Keep windows closed and limit outdoor time if you're allergic.",
+                    reason=f"Max {best_type} pollen index {best_level} at {best_time} ≥ {pollen_threshold}.",
+                )
+            )
+
+    return alerts
+
+

@@ -1,11 +1,18 @@
 [
   {
-    "email": "nietzoldn@yahoo.de",
-    "city": "Oslo",
+    "email": "73959@novasbe.pt",
+    "city": "Dubai",
     "has_pets": true,
     "has_plants": true,
-    "sensitive_to_cold": false,
+    "sensitive_to_cold": true,
+    "sensitive_to_heat": true
+  },
+  {
+    "email": "nietzoldn@yahoo.de",
+    "city": "Reykjavik",
+    "has_pets": true,
+    "has_plants": true,
+    "sensitive_to_cold": true,
     "sensitive_to_heat": true
   }
 ]
-

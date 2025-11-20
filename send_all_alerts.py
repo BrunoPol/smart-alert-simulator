@@ -1,43 +1,49 @@
 """
-Send alerts for all registered user profiles.
+Daily runner for Smart Alert Simulator.
 
-Intended to be run once per day, e.g.:
-
-    python send_all_alerts.py
-
-On a server (or PythonAnywhere task scheduler), this script:
-- reads config/user_profiles.json
-- for each profile: fetches weather, evaluates rules
-- sends an email if there are alerts
+- Loads user profiles from config/user_profiles.json
+- For each profile:
+  - Fetches current weather, forecast, and air quality/pollen
+  - Evaluates rules
+  - Sends an email with alerts (if any)
 """
 
+from typing import Any, Dict, List
 import json
 import os
-from typing import Any, Dict, List
+
+from dotenv import load_dotenv
 
 from src.weather_client import (
     get_current_weather_by_city,
     get_hourly_forecast_by_city,
+    get_air_quality_by_city,
 )
-from src.rules_engine import evaluate_rules, evaluate_forecast_rules
+from src.rules_engine import (
+    evaluate_rules,
+    evaluate_forecast_rules,
+    evaluate_air_quality_rules,
+)
 from src.alerts import send_alerts_email_if_configured
 
+load_dotenv()
 
-CONFIG_PATH = os.path.join("config", "user_profiles.json")
+CONFIG_DIR = "config"
+CONFIG_PATH = os.path.join(CONFIG_DIR, "user_profiles.json")
 
 
-def load_user_profiles() -> List[Dict[str, Any]]:
+def load_profiles() -> List[Dict[str, Any]]:
     """Load all user profiles from the JSON file."""
     if not os.path.exists(CONFIG_PATH):
-        print(f"No user profile config found at {CONFIG_PATH}.")
+        print(f"No profile file found at {CONFIG_PATH}.")
         return []
 
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        try:
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        except json.JSONDecodeError as exc:
-            print(f"Error parsing {CONFIG_PATH}: {exc}")
-            return []
+    except json.JSONDecodeError as exc:
+        print(f"Error parsing {CONFIG_PATH}: {exc}")
+        return []
 
     if not isinstance(data, list):
         print(f"Expected a list of profiles in {CONFIG_PATH}.")
@@ -47,7 +53,9 @@ def load_user_profiles() -> List[Dict[str, Any]]:
 
 
 def run_for_profile(profile: Dict[str, Any], hours: int = 12) -> None:
-    """Run the alert flow for a single user profile."""
+    """
+    Run the full alert flow for a single profile.
+    """
     email = profile.get("email")
     city = profile.get("city")
 
@@ -55,50 +63,133 @@ def run_for_profile(profile: Dict[str, Any], hours: int = 12) -> None:
         print("Profile is missing 'email' or 'city', skipping:", profile)
         return
 
-    context: Dict[str, Any] = {
+    context = {
         "has_pets": profile.get("has_pets", False),
         "has_plants": profile.get("has_plants", False),
         "sensitive_to_cold": profile.get("sensitive_to_cold", False),
         "sensitive_to_heat": profile.get("sensitive_to_heat", False),
+        "sensitive_to_pollution": profile.get("sensitive_to_pollution", False),
+        "sensitive_to_allergies": profile.get("sensitive_to_allergies", False),
     }
 
     print("\n=== Running alerts for profile ===")
     print(f"Email: {email}")
     print(f"City:  {city}")
     print(f"Context: {context}")
-    print()
 
-    # ---- Fetch current weather ----
+    # ---- Current weather ----
     weather = get_current_weather_by_city(city)
     if weather is None:
-        print(f"Could not fetch weather data for city: {city}")
+        print(f"Could not fetch current weather for {city}. Skipping profile.")
         return
 
-    print(f"Current weather in {city} at {weather['time']}:")
+    print(f"\nCurrent weather in {city} at {weather['time']}:")
     print(f"  Temperature: {weather['temperature']} °C")
+    if weather.get("apparent_temperature") is not None:
+        print(f"  Feels like:  {weather['apparent_temperature']} °C")
     print(f"  Humidity:    {weather['humidity']} %")
     print(f"  Precip:      {weather['precipitation']} mm")
     print(f"  Code:        {weather['weather_code']}")
-    print()
+    if weather.get("uv_index") is not None:
+        print(f"  UV index:    {weather['uv_index']}")
+    if weather.get("wind_speed") is not None:
+        print(f"  Wind:        {weather['wind_speed']} km/h")
 
-    # ---- Evaluate alerts ----
+    # ---- Rules on current conditions ----
     current_alerts = evaluate_rules(weather, context=context)
 
+    # ---- Forecast ----
+    forecast_alerts: List[Any] = []
     forecast = get_hourly_forecast_by_city(city, hours=hours)
     if forecast is None:
-        print("Could not fetch hourly forecast.")
-        forecast_alerts = []
+        print("\nCould not fetch hourly forecast.")
     else:
         forecast_alerts = evaluate_forecast_rules(forecast, context=context)
 
-    # ---- Send email ----
-    print("Sending email notification (if alerts exist and email is enabled)...")
+    # ---- Air quality & pollen ----
+    air_quality_alerts: List[Any] = []
+    air_quality_summary: Dict[str, str] | None = None
+
+    air_quality = get_air_quality_by_city(city, hours=hours)
+    if air_quality is None:
+        print("\nCould not fetch air quality / pollen data.")
+    else:
+        times = air_quality.get("time", [])
+        pm25 = air_quality.get("pm2_5", [])
+        pm10 = air_quality.get("pm10", [])
+        grass = air_quality.get("grass_pollen", [])
+        birch = air_quality.get("birch_pollen", [])
+        ragweed = air_quality.get("ragweed_pollen", [])
+
+        def max_with_time(series):
+            best_val, best_time = None, None
+            for t, v in zip(times, series):
+                if v is not None and (best_val is None or v > best_val):
+                    best_val, best_time = v, t
+            return best_val, best_time
+
+        max_pm25, max_pm25_time = max_with_time(pm25)
+        max_pm10, max_pm10_time = max_with_time(pm10)
+        max_grass, max_grass_time = max_with_time(grass)
+        max_birch, max_birch_time = max_with_time(birch)
+        max_ragweed, max_ragweed_time = max_with_time(ragweed)
+
+        print("\nAir quality & pollen (summary):")
+        if max_pm25 is not None:
+            print(f"  Max PM2.5:   {max_pm25} at {max_pm25_time}")
+        if max_pm10 is not None:
+            print(f"  Max PM10:    {max_pm10} at {max_pm10_time}")
+
+        pollen_candidates = [
+            ("grass", max_grass, max_grass_time),
+            ("birch", max_birch, max_birch_time),
+            ("ragweed", max_ragweed, max_ragweed_time),
+        ]
+        pollen_candidates = [(n, v, t) for (n, v, t) in pollen_candidates if v is not None]
+        if pollen_candidates:
+            pollen_name, pollen_val, pollen_time = max(pollen_candidates, key=lambda x: x[1])
+            print(f"  Max pollen:  {pollen_name} = {pollen_val} at {pollen_time}")
+            pollen_summary_str = f"{pollen_name} = {pollen_val} at {pollen_time}"
+        else:
+            print("  Pollen data: n/a")
+            pollen_summary_str = "n/a"
+
+        air_quality_summary = {
+            "Max PM2.5": f"{max_pm25} at {max_pm25_time}" if max_pm25 is not None else "n/a",
+            "Max PM10": f"{max_pm10} at {max_pm10_time}" if max_pm10 is not None else "n/a",
+            "Max pollen": pollen_summary_str,
+        }
+
+        air_quality_alerts = evaluate_air_quality_rules(air_quality, context=context)
+
+    # ---- Print alert overview ----
+    print("\nAlerts (current conditions):")
+    if not current_alerts:
+        print("  None.")
+    else:
+        for alert in current_alerts:
+            print(f"- [{alert.severity.upper()}] {alert.message}")
+            print(f"    Reason: {alert.reason}")
+
+    print("\nAlerts (forecast & air quality / pollen):")
+    combined_future_alerts = list(forecast_alerts) + list(air_quality_alerts)
+    if not combined_future_alerts:
+        print("  None.")
+    else:
+        for alert in combined_future_alerts:
+            print(f"- [{alert.severity.upper()}] {alert.message}")
+            print(f"    Reason: {alert.reason}")
+
+    # ---- Email notification ----
+    print("\nSending email notification (if alerts exist and email is enabled)...")
     send_alerts_email_if_configured(
         city=city,
         weather=weather,
         current_alerts=current_alerts,
         forecast_alerts=forecast_alerts,
-        email_to=email,  # override EMAIL_TO from .env
+        air_quality_alerts=air_quality_alerts,
+        air_quality_summary=air_quality_summary,
+        email_to=email,
     )
 
     print("=== Done for this profile ===\n")
@@ -106,7 +197,7 @@ def run_for_profile(profile: Dict[str, Any], hours: int = 12) -> None:
 
 def main() -> None:
     print("Loading user profiles...")
-    profiles = load_user_profiles()
+    profiles = load_profiles()
     if not profiles:
         print("No profiles found. Nothing to do.")
         return
@@ -119,3 +210,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
