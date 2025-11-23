@@ -1,0 +1,20 @@
+[
+  {
+    "email": "73959@novasbe.pt",
+    "city": "Dubai",
+    "has_pets": true,
+    "has_plants": true,
+    "sensitive_to_cold": true,
+    "sensitive_to_heat": true
+  },
+  {
+    "email": "nietzoldn@yahoo.de",
+    "city": "Oslo",
+    "has_pets": true,
+    "has_plants": true,
+    "sensitive_to_cold": true,
+    "sensitive_to_heat": true,
+    "sensitive_to_pollution": true,
+    "sensitive_to_allergies": true
+  }
+]

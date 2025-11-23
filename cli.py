@@ -69,16 +69,23 @@ def build_context_from_user() -> Dict[str, Any]:
     """Ask the user a few questions to build the context dict."""
     print("\nNow tell me a bit about your household:")
 
-    has_pets = ask_yes_no("Do you have pets?")
-    has_plants = ask_yes_no("Do you have plants (especially outdoors)?")
-    sensitive_to_cold = ask_yes_no("Is someone in the household sensitive to cold?")
-    sensitive_to_heat = ask_yes_no("Is someone in the household sensitive to heat?")
-
+    has_pets = ask_yes_no(
+        "Do you have pets that spend time outdoors?"
+    )
+    has_plants = ask_yes_no(
+        "Do you have outdoor plants, balcony plants, or a garden?"
+    )
+    sensitive_to_cold = ask_yes_no(
+        "Would you like extra tips when it’s cold outside?"
+    )
+    sensitive_to_heat = ask_yes_no(
+        "Would you like extra tips when it’s hot outside?"
+    )
     sensitive_to_pollution = ask_yes_no(
-        "Is someone in the household sensitive to air pollution (e.g. asthma)?"
+        "Does anyone in your household have asthma or other breathing problems?"
     )
     sensitive_to_allergies = ask_yes_no(
-        "Is someone in the household sensitive to pollen or seasonal allergies?"
+        "Does anyone in your household have pollen allergies (hay fever)?"
     )
 
     context = {
@@ -95,6 +102,7 @@ def build_context_from_user() -> Dict[str, Any]:
         print(f"  {key}: {value}")
 
     return context
+
 
 
 def load_profiles() -> List[Dict[str, Any]]:
