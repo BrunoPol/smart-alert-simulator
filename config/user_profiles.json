@@ -16,5 +16,25 @@
     "sensitive_to_heat": true,
     "sensitive_to_pollution": true,
     "sensitive_to_allergies": true
+  },
+  {
+    "email": "73960@novasbe.pt",
+    "city": "Dubai",
+    "has_pets": true,
+    "has_plants": true,
+    "sensitive_to_cold": true,
+    "sensitive_to_heat": true,
+    "sensitive_to_pollution": true,
+    "sensitive_to_allergies": true
+  },
+  {
+    "email": "73978@novasbe.pt",
+    "city": "Lisbon",
+    "has_pets": true,
+    "has_plants": true,
+    "sensitive_to_cold": true,
+    "sensitive_to_heat": true,
+    "sensitive_to_pollution": true,
+    "sensitive_to_allergies": true
   }
 ]
