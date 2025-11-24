@@ -21,6 +21,7 @@ def _build_alerts_email_body(
     forecast_alerts: Iterable[Alert],
     air_quality_alerts: Iterable[Alert] | None = None,
     air_quality_summary: dict | None = None,
+    forecast_lines: list[str] | None = None,
 ) -> str:
     """Create a plain-text email body describing the alerts."""
 
@@ -45,6 +46,13 @@ def _build_alerts_email_body(
     if weather.get("wind_speed") is not None:
         lines.append(f"  Wind:        {weather.get('wind_speed')} km/h")
     lines.append("")
+
+    # --- Short-term forecast snapshot (optional) ---
+    if forecast_lines:
+        lines.append("Short-term forecast (next hours):")
+        for line in forecast_lines:
+            lines.append(f"  {line}")
+        lines.append("")
 
     # --- Current alerts ---
     lines.append("Alerts (current conditions):")
@@ -140,8 +148,10 @@ def send_alerts_email_if_configured(
     forecast_alerts: Iterable[Alert],
     air_quality_alerts: Iterable[Alert] | None = None,
     air_quality_summary: dict | None = None,
+    forecast_lines: list[str] | None = None,
     email_to: Optional[str] = None,
 ) -> None:
+
     """
     High-level helper:
     - If there are no alerts at all, do nothing.
@@ -166,6 +176,7 @@ def send_alerts_email_if_configured(
         forecast_alerts=forecast_alerts,
         air_quality_alerts=air_quality_alerts,
         air_quality_summary=air_quality_summary,
+        forecast_lines=forecast_lines,
     )
 
     _send_email(subject, body, email_to_override=email_to)
