@@ -98,13 +98,45 @@ def run_for_profile(profile: Dict[str, Any], hours: int = 12) -> None:
     # ---- Rules on current conditions ----
     current_alerts = evaluate_rules(weather, context=context)
 
+        # ---- Rules on current conditions ----
+    current_alerts = evaluate_rules(weather, context=context)
+
     # ---- Forecast ----
     forecast_alerts: List[Any] = []
+    forecast_email_lines: list[str] = []  # for email body
+
     forecast = get_hourly_forecast_by_city(city, hours=hours)
     if forecast is None:
         print("\nCould not fetch hourly forecast.")
     else:
+        # Evaluate forecast-based rules (same as before)
         forecast_alerts = evaluate_forecast_rules(forecast, context=context)
+
+        # Build a short forecast summary for the email (first up to 4 hours)
+        times = forecast.get("time", [])
+        temps = forecast.get("temperature", [])
+        app_temps = forecast.get("apparent_temperature") or [None] * len(times)
+        uvs = forecast.get("uv_index") or [None] * len(times)
+        probs = forecast.get("precipitation_probability") or [None] * len(times)
+        winds = forecast.get("wind_speed") or [None] * len(times)
+
+        for t, temp, app, uv, prob, wind in zip(
+            times, temps, app_temps, uvs, probs, winds
+        ):
+            if len(forecast_email_lines) >= 4:
+                break  # only include first 4 hours to keep the email short
+
+            feels_str = f"{app:.1f}°C" if app is not None else "n/a"
+            uv_str = f"{uv:.1f}" if uv is not None else "n/a"
+            prob_str = f"{prob:.0f}%" if prob is not None else "n/a"
+            wind_str = f"{wind:.1f} km/h" if wind is not None else "n/a"
+
+            line = (
+                f"{t}: {temp:.1f}°C (feels {feels_str}), "
+                f"UV {uv_str}, rain {prob_str}, wind {wind_str}"
+            )
+            forecast_email_lines.append(line)
+
 
     # ---- Air quality & pollen ----
     air_quality_alerts: List[Any] = []
@@ -189,6 +221,7 @@ def run_for_profile(profile: Dict[str, Any], hours: int = 12) -> None:
         forecast_alerts=forecast_alerts,
         air_quality_alerts=air_quality_alerts,
         air_quality_summary=air_quality_summary,
+        forecast_lines=forecast_email_lines,
         email_to=email,
     )
 
