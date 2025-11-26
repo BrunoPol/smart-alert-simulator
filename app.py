@@ -176,6 +176,10 @@ def run_alert_flow_streamlit(
 
     # ---- Current alerts ----
     current_alerts = evaluate_rules(weather, context=context)
+    # Prepare containers for forecast-related info
+    forecast_alerts: List[Alert] = []
+    forecast_email_lines: list[str] = []
+
 
     # ---- Forecast ----
        
@@ -207,6 +211,31 @@ def run_alert_flow_streamlit(
 
         # Show table (so your professor can inspect exact values)
         st.dataframe(df_forecast)
+
+        # Build a short forecast summary for the email (first up to 4 hours)
+        max_rows = min(4, len(df_forecast))
+        for i in range(max_rows):
+            row = df_forecast.iloc[i]
+            t_str = row.name.strftime("%Y-%m-%d %H:%M")
+
+            temp = row["temp (°C)"]
+            feels = row["feels_like (°C)"]
+            uv = row["UV index"]
+            prob = row["rain chance (%)"]
+            wind = row["wind (km/h)"]
+
+            # Make nice strings, even if some values are missing
+            feels_str = f"{feels:.1f}°C" if pd.notna(feels) else "n/a"
+            uv_str = f"{uv:.1f}" if pd.notna(uv) else "n/a"
+            prob_str = f"{prob:.0f}%" if pd.notna(prob) else "n/a"
+            wind_str = f"{wind:.1f} km/h" if pd.notna(wind) else "n/a"
+
+            line = (
+                f"{t_str}: {temp:.1f}°C (feels {feels_str}), "
+                f"UV {uv_str}, rain {prob_str}, wind {wind_str}"
+            )
+            forecast_email_lines.append(line)
+
 
         # Temperature chart
         st.markdown("#### Temperature (next hours)")
@@ -308,6 +337,7 @@ def run_alert_flow_streamlit(
             forecast_alerts=forecast_alerts,
             air_quality_alerts=air_quality_alerts,
             air_quality_summary=air_quality_summary_dict,
+            forecast_lines=forecast_email_lines,
             email_to=notification_email,
         )
     else:
